@@ -1,0 +1,920 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Sophos XG Firewall in HA using TGW",
+    "Parameters": {
+      "AMI": {
+        "Description": "Autodetect uses the latest AMI based on the pricing option you select. Otherwise, specify an AMI ID.",
+        "Type": "String",
+        "Default": "autodetect",
+        "ConstraintDescription": "Must be 'autodetect' or a valid AMI id starting with 'ami-'",
+        "AllowedPattern": "^(autodetect|ami-[0-9a-f]{8}|ami-[0-9a-f]{17})$"
+      },
+      "AvailabilityZoneXGfirewall1": {
+        "Type": "AWS::EC2::AvailabilityZone::Name",
+        "Description": "Please provide an Availability Zone for Firewall 1.",
+        "ConstraintDescription": "Must be a valid AZ code, for example us-west-1a",
+        "AllowedPattern": "\\S+"
+      },
+      "AvailabilityZoneXGfirewall2": {
+        "Type": "AWS::EC2::AvailabilityZone::Name",
+        "Description": "Please provide a different Availability Zone for Firewall 2.",
+        "ConstraintDescription": "Must be a valid AZ code, for example us-west-1b",
+        "AllowedPattern": "\\S+"
+      },
+      "PublicNetworkPrefix": {
+        "Description": "Please provide an available /16 CIDR block to be used by the VPC. Only the first two octets are required. For example to use address range 10.6.0.0/16 you should provide '10.6' as input.",
+        "Type": "String",
+        "Default": "10.15",
+        "ConstraintDescription": "Must be notation like: X.X",
+        "AllowedPattern": "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?).)(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)"
+      },
+      "TrustedNetwork": {
+        "Description": "Allow all traffic (including TCP port 22 and 4444) from this CIDR on the public network interface.",
+        "Type": "String",
+        "AllowedPattern": "^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(/(2[4-9]|3[0-2]))$",
+        "ConstraintDescription": "Must be a valid IPv4 CIDR within range /24 to /32"
+      },
+      "InstanceSize": {
+        "Description": "EC2 instance type to be used for XG deployment.",
+        "Type": "String",
+        "Default": "m5.large",
+        "AllowedValues": [
+          "t2.medium",
+          "t2.large",
+          "t2.xlarge",
+          "t2.2xlarge",
+          "t3.medium",
+          "t3.large",
+          "t3.xlarge",
+          "t3.2xlarge",
+          "m4.large",
+          "m4.xlarge",
+          "m4.2xlarge",
+          "m4.4xlarge",
+          "m4.10xlarge",
+          "m4.16xlarge",
+          "m5.large",
+          "m5.xlarge",
+          "m5.2xlarge",
+          "m5.4xlarge",
+          "m5.8xlarge",
+          "m5.12xlarge",
+          "m5.16xlarge",
+          "m5.24xlarge",
+          "c4.large",
+          "c4.xlarge",
+          "c4.2xlarge",
+          "c4.4xlarge",
+          "c4.8xlarge",
+          "c5.large",
+          "c5.xlarge",
+          "c5.2xlarge",
+          "c5.4xlarge",
+          "c5.9xlarge",
+          "c5.12xlarge",
+          "c5.18xlarge",
+          "c5.24xlarge",
+          "default"
+        ]
+      },
+      "KeyName": {
+        "Type": "AWS::EC2::KeyPair::KeyName",
+        "Description": "Name of an existing EC2 KeyPair to enable SSH access."
+      },
+      "LicenseType": {
+        "Description": "Select between Bring Your Own License (BYOL) or pay per instance-hour (Hourly). This parameter does not take effect if you manually enter an AMI ID.",
+        "Type": "String",
+        "AllowedValues": [
+          "Hourly",
+          "BYOL"
+        ],
+        "Default": "BYOL"
+      },
+      "XGSerialNumber": {
+        "Description": "If you selected the BYOL License Type, enter the serial numbers on your registered XG Firewall licenses separated by commas (e.g. Firewall-1,Firewall-2).",
+        "Type": "CommaDelimitedList", 
+        "Default": "",
+        "ConstraintDescription": "Must be in the format Serial-1,Serial-2"
+      },
+      "BasicAdminPassword": {
+        "Description": "Enter the administrative password for the XG Firewalls. Must be at least 10 characters. At least 1 lowercase and 1 uppercase letter. At least one numeric character. At least one special character.",
+        "Type": "String",
+        "NoEcho": "True",
+        "ConstraintDescription": "Must be at least 10 characters. At least 1 lowercase and 1 uppercase letter. At least one numeric character. At least one special character.",
+        "AllowedPattern": "^(?=.*[0-9])(?=.*[^A-Za-z0-9])(?=.*[a-z])(?=.*[A-Z])(?=(.*)).{10,60}$"
+      },
+
+      "OptUsingNLBonXG": {
+        "Description": "Select Yes to associate an internet facing Network Load Balancer with the XG instances",
+        "Type": "String",
+        "AllowedValues": [
+          "yes",
+          "no"
+        ],
+        "Default": "no"
+      },
+      "AmazonASN": {
+        "Description": "Private Autonomous System Number (ASN) for the Amazon side of the BGP setup",
+        "Type": "String",
+        "Default": "64512"
+      },
+      "AgreeUserTerms": {
+        "Description": "Use of this software is subject to the Sophos End User License Agreement (EULA) at https://www.sophos.com/en-us/legal/sophos-end-user-license-agreement.aspx. You must enter 'yes' to accept the EULA to continue, so please read it carefully. You also acknowledge that Sophos processes personal data in accordance with the Sophos Privacy Policy at https://www.sophos.com/en-us/legal/sophos-group-privacy-notice.aspx.",
+        "Type": "String",
+        "AllowedPattern": "^yes$"
+      },
+      "SendLearningStats": {
+        "Description": "Learning how customers use Sophos Firewall helps make better products. The product sends information periodically to Sophos which is used for the purpose of improving product stability, prioritizing feature refinements, and protection effectiveness. Details about the data that is transferred can be found in the online help.",
+        "Type": "String",
+        "AllowedValues": [
+          "on",
+          "off"
+        ],
+        "Default": "on"
+      }
+    },
+    "Metadata": {
+      "AWS::CloudFormation::Interface": {
+        "ParameterGroups": [
+          {
+            "Label": {
+              "default": "Cloud Infrastructure Configuration"
+            },
+            "Parameters": [
+              "AMI",
+              "InstanceSize",
+              "AvailabilityZoneXGfirewall1",
+              "AvailabilityZoneXGfirewall2",
+              "PublicNetworkPrefix",
+              "TrustedNetwork",
+              "AmazonASN",
+              "OptUsingNLBonXG"
+            ]
+          },
+          {
+            "Label": {
+              "default": "XG Firewall Configuration"
+            },
+            "Parameters": [
+              "LicenseType",
+              "XGSerialNumber",
+              "BasicAdminPassword",
+              "KeyName"
+            ]
+          },
+          {
+            "Label": {
+              "default": "Other Configuration"
+            },
+            "Parameters": [
+              "AgreeUserTerms",
+              "SendLearningStats"
+            ]
+          }
+        ],
+        "ParameterLabels": {
+          "AMI": {
+            "default": "AMI ID (required)"
+          },
+          "LicenseType": {
+            "default": "Pricing Option (required)"
+          },
+          "InstanceSize": {
+            "default": "Instance Size (required)"
+          },
+          "AvailabilityZoneXGfirewall1": {
+            "default": "AvailabilityZone for XG Firewall 1 deployment (required)"
+          },
+          "AvailabilityZoneXGfirewall2": {
+            "default": "AvailabilityZone for XG Firewall 2 deployment (required)"
+          },
+          "PublicNetworkPrefix": {
+            "default": "Network Address Prefix for new VPC (required)"
+          },
+          "KeyName": {
+            "default": "SSH KeyPair Name (required)"
+          },
+          "TrustedNetwork": {
+            "default": "Trusted Network CIDR (required)"
+          },
+          "XGSerialNumber": {
+            "default": "XG License Serial Number for XG Firewalls"
+          },
+          "BasicAdminPassword": {
+            "default": "Admin Password for XG Firewalls in HA (required)"
+          },
+          "AgreeUserTerms": {
+            "default": "I accept the Sophos End User License Agreement and acknowledge the Sophos Privacy Policy (required)"
+          },
+          "SendLearningStats": {
+            "default": "Opt in to the customer experience improvement program (required)"
+          },
+          "OptUsingNLBonXG":{
+            "default": "Associate a Network Load Balancer with XG instance(optional)"
+          },
+          "AmazonASN" : {
+            "default": " ASN for the Amazon side of a BGP exchange"
+        }
+      }
+    }
+    },
+    "Mappings": {
+      "RegionMap": {
+        "af-south-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "ap-east-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "ap-northeast-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "ap-northeast-2": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "ap-south-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "ap-southeast-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "ap-southeast-2": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "ca-central-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "eu-central-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "eu-north-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "eu-south-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "eu-west-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "eu-west-2": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "eu-west-3": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "me-south-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "sa-east-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "us-east-1": {
+          "Hourly": "ami-04baf8f5200c4d04b",
+          "BYOL": "ami-0cb27e8d83fd0726d",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "us-east-2": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "us-west-1": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        },
+        "us-west-2": {
+          "Hourly": "",
+          "BYOL": "",
+          "ARN": "aws",
+          "InstanceType": "m5.large"
+        }
+      }
+    },
+    "Conditions":  {
+        "UsingNLB": {
+            "Fn::Equals": [
+              {
+                "Ref": "OptUsingNLBonXG"
+              },
+              "yes"
+            ]
+          }
+    },
+    "Resources": {
+        "FirewallVPC": {
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+              "EnableDnsSupport": true,
+              "EnableDnsHostnames": true,
+              "CidrBlock": {
+                "Fn::Join": [
+                  ".",
+                  [
+                    {
+                      "Ref": "PublicNetworkPrefix"
+                    },
+                    "0.0/16"
+                  ]
+                ]
+              }
+            }
+        },
+        "SubnetPublicXGfirewall1": {
+            "Type": "AWS::EC2::Subnet",
+            "DependsOn" :"FirewallVPC",
+            "Properties": {
+              "VpcId": {
+                "Ref": "FirewallVPC"
+              },
+              "CidrBlock": {
+                "Fn::Join": [
+                  ".",
+                  [
+                    {
+                      "Ref": "PublicNetworkPrefix"
+                    },
+                    "1.0/24"
+                  ]
+                ]
+              },
+          "AvailabilityZone": {
+            "Ref": "AvailabilityZoneXGfirewall1"
+          },
+          "MapPublicIpOnLaunch": "true",
+          "Tags": [
+            {
+              "Key": "Application",
+              "Value": {
+                "Ref": "AWS::StackId"
+              }
+            },
+            {
+              "Key": "Name",
+              "Value": {
+                "Fn::Join": [
+                  "-",
+                  [
+                    "XG-Firewall-01",
+                    {
+                      "Ref": "AWS::StackName"
+                    },
+                    "public"
+                  ]
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "SubnetPrivateXGfirewall1": {
+        "Type": "AWS::EC2::Subnet",
+        "DependsOn": "SubnetPublicXGfirewall1",
+        "Properties": {
+          "VpcId": {
+            "Ref": "FirewallVPC"
+          },
+          "CidrBlock": {
+            "Fn::Join": [
+              ".",
+              [
+                {
+                  "Ref": "PublicNetworkPrefix"
+                },
+                "0.0/24"
+              ]
+            ]
+          },
+          "AvailabilityZone": {
+            "Ref": "AvailabilityZoneXGfirewall1"
+          },
+          "Tags": [
+            {
+              "Key": "Application",
+              "Value": {
+                "Ref": "AWS::StackId"
+              }
+            },
+            {
+              "Key": "Name",
+              "Value": {
+                "Fn::Join": [
+                  "-",
+                  [
+                    "XG-Firewall-01",
+                    {
+                      "Ref": "AWS::StackName"
+                    },
+                    "private"
+                  ]
+                ]
+              }
+            }
+          ]
+  
+        }
+    },
+    "SubnetPublicXGfirewall2": {
+        "Type": "AWS::EC2::Subnet",
+        "Properties": {
+          "VpcId": {
+            "Ref": "FirewallVPC"
+          },
+          "CidrBlock": {
+            "Fn::Join": [
+              ".",
+              [
+                {
+                  "Ref": "PublicNetworkPrefix"
+                },
+                "3.0/24"
+              ]
+            ]
+          },
+          "AvailabilityZone": {
+            "Ref": "AvailabilityZoneXGfirewall2"
+          },
+          "MapPublicIpOnLaunch": true,
+          "Tags": [
+            {
+              "Key": "Application",
+              "Value": {
+                "Ref": "AWS::StackId"
+              }
+            },
+            {
+              "Key": "Name",
+              "Value": {
+                "Fn::Join": [
+                  "-",
+                  [
+                    "XG-Firewall-02",
+                    {
+                      "Ref": "AWS::StackName"
+                    },
+                    "public"
+                  ]
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "SubnetPrivateXGfirewall2": {
+        "Type": "AWS::EC2::Subnet",
+        "Properties": {
+          "VpcId": {
+            "Ref": "FirewallVPC"
+          },
+          "CidrBlock": {
+            "Fn::Join": [
+              ".",
+              [
+                {
+                  "Ref": "PublicNetworkPrefix"
+                },
+                "2.0/24"
+              ]
+            ]
+          },
+          "AvailabilityZone": {
+            "Ref": "AvailabilityZoneXGfirewall2"
+          },
+          "Tags": [
+            {
+              "Key": "Application",
+              "Value": {
+                "Ref": "AWS::StackId"
+              }
+            },
+            {
+              "Key": "Name",
+              "Value": {
+                "Fn::Join": [
+                  "-",
+                  [
+                    "XG-Firewall-02",
+                    {
+                      "Ref": "AWS::StackName"
+                    },
+                    "private"
+                  ]
+                ]
+              }
+            }
+          ]
+    
+        }
+    },
+      "InternetGateway": {
+        "Type": "AWS::EC2::InternetGateway",
+        "Properties": {
+          "Tags": [
+            {
+              "Key": "Network",
+              "Value": "Public"
+            }
+          ]
+        }
+      },
+      "AttachGateway": {
+        "Type": "AWS::EC2::VPCGatewayAttachment",
+        "Properties": {
+          "VpcId": {
+            "Ref": "FirewallVPC"
+          },
+          "InternetGatewayId": {
+            "Ref": "InternetGateway"
+          }
+        }
+      },
+      "RouteTablePublic": {
+        "Type": "AWS::EC2::RouteTable",
+        "Properties": {
+          "VpcId": {
+            "Ref": "FirewallVPC"
+          },
+          "Tags": [
+            {
+              "Key": "Network",
+              "Value": "Public"
+            }
+          ]
+        }
+      },
+      "RouteToIGW": {
+        "Type": "AWS::EC2::Route",
+        "DependsOn": "AttachGateway",
+        "Properties": {
+          "RouteTableId": {
+            "Ref": "RouteTablePublic"
+          },
+          "DestinationCidrBlock": "0.0.0.0/0",
+          "GatewayId": {
+            "Ref": "InternetGateway"
+          }
+        }
+      },
+      "SubnetPublicRouteTableAssociation1": {
+        "Type": "AWS::EC2::SubnetRouteTableAssociation",
+        "Properties": {
+          "SubnetId": {
+            "Ref": "SubnetPublicXGfirewall1"
+          },
+          "RouteTableId": {
+            "Ref": "RouteTablePublic"
+          }
+        }
+      },
+      "SubnetPublicRouteTableAssociation2": {
+        "Type": "AWS::EC2::SubnetRouteTableAssociation",
+        "Properties": {
+          "SubnetId": {
+            "Ref": "SubnetPublicXGfirewall2"
+          },
+          "RouteTableId": {
+            "Ref": "RouteTablePublic"
+          }
+        }
+      },
+      "XGFirewall1": {
+        "Type" : "AWS::CloudFormation::Stack",
+        "Properties" : {
+            "Parameters" : {
+              "AMI": "autodetect",
+              "AvailabilityZone": {
+                "Ref":"AvailabilityZoneXGfirewall1"
+              },
+              "PublicNetworkPrefix": {
+                "Ref":"PublicNetworkPrefix"
+              },
+              "OptExistingVPC": {
+                "Ref":"FirewallVPC"
+              },
+              "OptExistingSubnetPublic": {
+                "Ref": "SubnetPublicXGfirewall1"
+    
+              },
+              "OptExistingSubnetPrivate": {
+                "Ref":"SubnetPrivateXGfirewall1"
+    
+              },
+              "TrustedNetwork": {
+                "Ref":"TrustedNetwork"
+              },
+              "OptUsingEIPonXG": "yes",
+              "OptExistingElasticIpId": "",
+              "InstanceSize": {
+                "Ref":"InstanceSize"
+              },
+              "KeyName": {
+                "Ref": "KeyName"
+              },
+              "XGSerialNumber": {
+                 "Fn::Select" : [ "0", {"Ref": "XGSerialNumber"} ] 
+              },
+              "XGFirewallName": {
+                "Fn::Join": [
+                    "-",
+                    [
+                      {
+                        "Ref": "AWS::StackName"
+                      },
+                      "XG-Firewall-01"
+                    ]
+                  ]
+                },
+                
+              "BasicAdminPassword": {
+                "Ref": "BasicAdminPassword"
+              },
+              "AgreeUserTerms": {
+                "Ref": "AgreeUserTerms"
+              },
+              "SendLearningStats":{
+                "Ref": "SendLearningStats"
+                  
+              },
+              "LicenseType": "BYOL"
+    
+            },
+            "TemplateURL" : "https://cfttemplatexg.s3.amazonaws.com/newstandalone.json"
+        }
+    },
+      "XGFirewall2": {
+        "Type" : "AWS::CloudFormation::Stack",
+        "Properties" : {
+            "Parameters" : {
+              "AMI": "autodetect",
+              "AvailabilityZone": {
+                "Ref":"AvailabilityZoneXGfirewall2"
+              },
+              "PublicNetworkPrefix": {
+                "Ref":"PublicNetworkPrefix"
+              },
+              "OptExistingVPC": {
+                "Ref":"FirewallVPC"
+              },
+              "OptExistingSubnetPublic": {
+                "Ref": "SubnetPublicXGfirewall2"
+    
+              },
+              "OptExistingSubnetPrivate": {
+                "Ref":"SubnetPrivateXGfirewall2"
+    
+              },
+              "TrustedNetwork": {
+                "Ref":"TrustedNetwork"
+              },
+              "OptUsingEIPonXG": "yes",
+              "OptExistingElasticIpId": "",
+              "InstanceSize": {
+                "Ref":"InstanceSize"
+              },
+              "KeyName": {
+                "Ref": "KeyName"
+              },
+              "XGSerialNumber": {
+                "Fn::Select" : [ "1", {"Ref": "XGSerialNumber"} ] 
+              },
+              "XGFirewallName": {
+                "Fn::Join": [
+                    "-",
+                    [
+                      {
+                        "Ref": "AWS::StackName"
+                      },
+                      "XG-Firewall-02"
+                    ]
+                  ]
+
+              },
+              "BasicAdminPassword": {
+                "Ref": "BasicAdminPassword"
+              },
+              "AgreeUserTerms": {
+                "Ref": "AgreeUserTerms"
+              },
+              "SendLearningStats":{
+                "Ref": "SendLearningStats"
+                  
+              },
+              "LicenseType": "BYOL"
+    
+            },
+            "TemplateURL" : "https://cfttemplatexg.s3.amazonaws.com/newstandalone.json"
+    
+          }
+      },
+        "TransitGateway": {
+          "Type" : "AWS::EC2::TransitGateway",
+          "Properties" : {
+              "AmazonSideAsn" :{
+                  "Ref": "AmazonASN"
+    
+              } ,
+              "DefaultRouteTableAssociation" : "disable",
+              "DefaultRouteTablePropagation" :"disable",
+              "Description" : "Creating a transit gateway to interconnect your virtual private clouds(VPC)",
+              "Tags": [
+                  {
+                    "Key": "Name",
+                    "Value": {
+                      "Fn::Join": [
+                        "-",
+                        [
+                          {
+                            "Ref": "AWS::StackName"
+                          },
+                          "TransitGateway"
+                        ]
+                      ]
+                    }
+                  }
+                ],
+              "VpnEcmpSupport" : "disable"
+          }
+        },
+        "networkloadbalancer": {
+          "Type" : "AWS::ElasticLoadBalancingV2::LoadBalancer",
+          "Condition": "UsingNLB",
+          "Properties" : {
+              "IpAddressType" : "ipv4",
+              "Name" : {
+                  "Fn::Join": [
+                      "-",
+                      [
+                        {
+                          "Ref": "AWS::StackName"
+                        },
+                        "Loadbalancer"
+                      ]
+                    ]
+              },
+              "Scheme" : "internet-facing",
+              "Subnets" : [ 
+                  {
+                      "Ref": "SubnetPublicXGfirewall2"
+                      
+                  },
+                  {
+                      "Ref": "SubnetPublicXGfirewall1"
+                  }
+              ],
+              "Tags": [
+                  {
+                    "Key": "Name",
+                    "Value": {
+                      "Fn::Join": [
+                        "-",
+                        [
+                          {
+                            "Ref": "AWS::StackName"
+                          },
+                          "networkloadbalancer"
+                        ]
+                      ]
+                    }
+                  }
+                ],
+              "Type" : "network"
+            }
+        },
+        "TargetGroup" : {
+          "Type" : "AWS::ElasticLoadBalancingV2::TargetGroup",
+          "Condition": "UsingNLB",
+          "Properties" : {
+              "HealthCheckPort" :"4444",
+              "HealthCheckProtocol" : "TCP",
+              "Name" : {
+                  "Fn::Join": [
+                      "-",
+                      [
+                        {
+                          "Ref": "AWS::StackName"
+                        },
+                        "TargetGroups"
+                      ]
+                    ]
+              },
+              "Port" : "4444",
+              "Protocol" : "TCP",
+              "Tags": [
+                  {
+                    "Key": "Name",
+                    "Value": {
+                      "Fn::Join": [
+                        "-",
+                        [
+                          {
+                            "Ref": "AWS::StackName"
+                          },
+                          "targetgroup"
+                        ]
+                      ]
+                    }
+                  }
+                ],
+              "TargetGroupAttributes": [{
+                  "Key": "deregistration_delay.timeout_seconds",
+                  "Value": "60"
+              }],
+              "Targets" : [
+                  {
+    
+                  "Id" : {
+                      "Fn::GetAtt": ["XGFirewall1","Outputs.PrivateIPAddressPublicENI"]
+                  },
+                  "Port" : 4444
+                  },
+                  {
+    
+                      "Id" : {
+                          "Fn::GetAtt": ["XGFirewall2","Outputs.PrivateIPAddressPublicENI"]
+                      },
+                      "Port" : 4444
+                  }
+                  
+              ],
+              "TargetType" : "ip",
+              "VpcId" : {
+                  "Ref":"FirewallVPC"
+              }
+            }
+    
+      },
+      "LoadBalancerListener":{
+          "Type": "AWS::ElasticLoadBalancingV2::Listener",
+          "Condition": "UsingNLB",
+          "Properties": {
+              "DefaultActions": [
+                  {
+                  "TargetGroupArn" : {
+                      "Ref": "TargetGroup"
+                  },
+                  "Type" : "forward"
+                  }
+              ],
+    
+             "LoadBalancerArn" : {
+                  "Ref": "networkloadbalancer"
+              },
+              "Port" : "80",
+              "Protocol" : "TCP"
+          }
+      }
+ 
+    }
+}
+  
