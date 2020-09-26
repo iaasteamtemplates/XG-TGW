@@ -94,7 +94,8 @@
 			"Description": "If you selected the BYOL License Type, enter the serial numbers on your registered XG Firewall licenses separated by commas (e.g. Firewall-1,Firewall-2).",
 			"Type": "String",
 			"Default": "",
-			"ConstraintDescription": "Must be in the format Serial-1,Serial-2"
+			"ConstraintDescription": "Must be in the format Serial-1,Serial-2 and 15 characters per serial",
+			"AllowedPattern": "^$|([A-Z0-9]){15},([A-Z0-9]){15}$"
 		},
 		"BasicAdminPassword": {
 			"Description": "Enter the administrative password for the XG Firewalls. Must be at least 10 characters. At least 1 lowercase and 1 uppercase letter. At least one numeric character. At least one special character.",
