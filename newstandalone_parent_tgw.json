@@ -908,5 +908,35 @@
 			}
 		}
 
+	},
+	"Outputs": {
+		"VPC": {
+			"Description": "VPC ID of the XG Firewall",
+			"Value": {
+				"Ref": "FirewallVPC"
+			}
+		},
+		"PublicIPAddressXG1": {
+			"Description": "Public IP associated with Sophos XG node 1's public interface",
+			"Value": {
+
+				"Fn::GetAtt": [
+					"XGFirewall1",
+					"Outputs.PublicIPAddress"
+				]
+
+			}
+		},
+		"PrivateIPAddressXG2": {
+			"Description": "Public IP associated with Sophos XG node 2's public interface",
+			"Value": {
+
+				"Fn::GetAtt": [
+					"XGFirewall2",
+					"Outputs.PublicIPAddress"
+				]
+
+			}
+		}
 	}
 }
