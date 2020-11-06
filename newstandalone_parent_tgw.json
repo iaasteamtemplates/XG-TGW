@@ -690,7 +690,7 @@
 					"LicenseType": "BYOL"
 
 				},
-				"TemplateURL": "https://cfttemplatexg.s3.amazonaws.com/newstandalone.json"
+				"TemplateURL": "https://s3.amazonaws.com/sophos-nsg-cf/xg/standalone.template"
 			}
 		},
 		"XGFirewall2": {
@@ -761,7 +761,7 @@
 					"LicenseType": "BYOL"
 
 				},
-				"TemplateURL": "https://cfttemplatexg.s3.amazonaws.com/newstandalone.json"
+				"TemplateURL": "https://s3.amazonaws.com/sophos-nsg-cf/xg/standalone.template"
 
 			}
 		},
