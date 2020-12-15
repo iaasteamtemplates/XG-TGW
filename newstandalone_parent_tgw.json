@@ -774,7 +774,7 @@
 				},
 				"DefaultRouteTableAssociation": "disable",
 				"DefaultRouteTablePropagation": "disable",
-				"Description": "Creating a transit gateway to interconnect your virtual private clouds(VPC)",
+				"Description": "Creating a transit gateway to interconnect your virtual private clouds(VPC) and enable XG HA",
 				"Tags": [{
 					"Key": "Name",
 					"Value": {
@@ -788,7 +788,8 @@
 						]
 					}
 				}],
-				"VpnEcmpSupport": "disable"
+				"VpnEcmpSupport": "enable",
+				"MulticastSupport": "enable"
 			}
 		},
 		"networkloadbalancer": {
