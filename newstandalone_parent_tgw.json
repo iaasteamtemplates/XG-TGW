@@ -103,16 +103,6 @@
 			"ConstraintDescription": "Must be at least 10 characters. At least 1 lowercase and 1 uppercase letter. At least one numeric character. At least one special character.",
 			"AllowedPattern": "^(?=.*[0-9])(?=.*[^A-Za-z0-9])(?=.*[a-z])(?=.*[A-Z])(?=(.*)).{10,60}$"
 		},
-
-		"OptUsingNLBonXG": {
-			"Description": "Select Yes to associate an internet facing Network Load Balancer with the XG instances",
-			"Type": "String",
-			"AllowedValues": [
-				"yes",
-				"no"
-			],
-			"Default": "no"
-		},
 		"AmazonASN": {
 			"Description": "Private Autonomous System Number (ASN) for the Amazon side of the BGP setup",
 			"Type": "String",
@@ -146,8 +136,7 @@
 						"AvailabilityZoneXGfirewall2",
 						"PublicNetworkPrefix",
 						"TrustedNetwork",
-						"AmazonASN",
-						"OptUsingNLBonXG"
+						"AmazonASN"
 					]
 				},
 				{
@@ -207,10 +196,7 @@
 				},
 				"SendLearningStats": {
 					"default": "Opt in to the customer experience improvement program (required)"
-				},
-				"OptUsingNLBonXG": {
-					"default": "Associate a Network Load Balancer with XG instance(optional)"
-				},
+				}
 				"AmazonASN": {
 					"default": " ASN for the Amazon side of a BGP exchange"
 				}
@@ -342,13 +328,6 @@
 		}
 	},
 	"Conditions": {
-		"UsingNLB": {
-			"Fn::Equals": [{
-					"Ref": "OptUsingNLBonXG"
-				},
-				"yes"
-			]
-		},
 		"EnteredSerial": {
 			"Fn::Not": [{
 				"Fn::Equals": [{
@@ -794,7 +773,6 @@
 		},
 		"networkloadbalancer": {
 			"Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
-			"Condition": "UsingNLB",
 			"Properties": {
 				"IpAddressType": "ipv4",
 				"Name": {
@@ -834,7 +812,6 @@
 		},
 		"TargetGroup": {
 			"Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
-			"Condition": "UsingNLB",
 			"Properties": {
 				"HealthCheckPort": "4444",
 				"HealthCheckProtocol": "TCP",
@@ -892,7 +869,6 @@
 		},
 		"LoadBalancerListener": {
 			"Type": "AWS::ElasticLoadBalancingV2::Listener",
-			"Condition": "UsingNLB",
 			"Properties": {
 				"DefaultActions": [{
 					"TargetGroupArn": {
