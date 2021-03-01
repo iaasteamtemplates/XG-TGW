@@ -928,7 +928,7 @@
 
 			}
 		},
-		"PrivateIPAddressXG2": {
+		"PublicIPAddressXG2": {
 			"Description": "Public IP associated with Sophos XG node 2's public interface",
 			"Value": {
 
